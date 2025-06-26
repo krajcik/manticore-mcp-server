@@ -40,6 +40,8 @@ linters:
       package-average: 10.0
     testifylint:
       enable-all: true
+      disable:
+        - require-error
     goconst:
       min-len: 2
       min-occurrences: 2

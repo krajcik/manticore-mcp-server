@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  manticore:
+    image: manticoresearch/manticore:latest
+    ports:
+      - "19308:9308"
+      - "19306:9306"
+    environment:
+      - EXTRA=1
+    volumes:
+      - manticore_data:/var/lib/manticore
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --post-data='SHOW STATUS' -O - 'http://localhost:9308/sql?mode=raw' | grep -q 'uptime'"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  manticore_data:

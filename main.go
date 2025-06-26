@@ -25,7 +25,7 @@ func main() {
 		Level: logLevel,
 	}))
 
-	manticoreClient := client.New(cfg.ManticoreURL, logger)
+	manticoreClient := client.New(cfg, logger)
 	toolHandler := tools.NewHandler(manticoreClient, logger)
 
 	mcpServer := server.New(toolHandler, logger)
