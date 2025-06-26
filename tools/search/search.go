@@ -2,12 +2,21 @@ package search
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
 	"strings"
 
 	"manticore-mcp-server/client"
+)
+
+var (
+	ErrInvalidQueryFormat   = errors.New("invalid query format")
+	ErrInvalidMatchQuery    = errors.New("invalid match query format")
+	ErrInvalidBoolQuery     = errors.New("invalid bool query format")
+	ErrUnsupportedQueryType = errors.New("unsupported query type")
+	ErrQueryProcessed       = errors.New("query processed")
 )
 
 // Handler handles search-related operations
@@ -219,79 +228,123 @@ func (h *Handler) simulateHTTPQuery(ctx context.Context, httpQuery map[string]in
 func (h *Handler) appendQueryToSQL(sql *strings.Builder, query interface{}) error {
 	queryMap, ok := query.(map[string]interface{})
 	if !ok {
-		return fmt.Errorf("invalid query format")
+		return ErrInvalidQueryFormat
 	}
 
-	// Handle match queries
-	if match, exists := queryMap["match"]; exists {
-		matchMap, ok := match.(map[string]interface{})
-		if !ok {
-			return fmt.Errorf("invalid match query format")
+	if err := h.handleMatchQuery(sql, queryMap); err != nil {
+		if errors.Is(err, ErrQueryProcessed) {
+			return nil
 		}
+		return err
+	}
+	if h.handleMatchAllQuery(sql, queryMap) {
+		return nil
+	}
+	if h.handleQueryStringQuery(sql, queryMap) {
+		return nil
+	}
+	if err := h.handleBoolQuery(sql, queryMap); err != nil {
+		if errors.Is(err, ErrQueryProcessed) {
+			return nil
+		}
+		return err
+	}
 
-		for field, value := range matchMap {
-			if field == "*" {
-				sql.WriteString("MATCH('")
-				sql.WriteString(strings.ReplaceAll(fmt.Sprintf("%v", value), "'", "''"))
-				sql.WriteString("')")
-			} else {
-				sql.WriteString("MATCH('@")
-				sql.WriteString(field)
-				sql.WriteString(" ")
-				sql.WriteString(strings.ReplaceAll(fmt.Sprintf("%v", value), "'", "''"))
-				sql.WriteString("')")
-			}
-			break // Take first match
-		}
+	return ErrUnsupportedQueryType
+}
+
+// handleMatchQuery processes match queries
+func (h *Handler) handleMatchQuery(sql *strings.Builder, queryMap map[string]interface{}) error {
+	match, exists := queryMap["match"]
+	if !exists {
 		return nil
 	}
 
-	// Handle match_all queries
+	matchMap, ok := match.(map[string]interface{})
+	if !ok {
+		return ErrInvalidMatchQuery
+	}
+
+	for field, value := range matchMap {
+		if field == "*" {
+			sql.WriteString("MATCH('")
+			sql.WriteString(strings.ReplaceAll(fmt.Sprintf("%v", value), "'", "''"))
+			sql.WriteString("')")
+		} else {
+			sql.WriteString("MATCH('@")
+			sql.WriteString(field)
+			sql.WriteString(" ")
+			sql.WriteString(strings.ReplaceAll(fmt.Sprintf("%v", value), "'", "''"))
+			sql.WriteString("')")
+		}
+		break // Take first match
+	}
+	return ErrQueryProcessed
+}
+
+// handleMatchAllQuery processes match_all queries
+func (h *Handler) handleMatchAllQuery(sql *strings.Builder, queryMap map[string]interface{}) bool {
 	if _, exists := queryMap["match_all"]; exists {
 		sql.WriteString("1=1") // Match all documents
-		return nil
+		return true
 	}
+	return false
+}
 
-	// Handle query_string queries
+// handleQueryStringQuery processes query_string queries
+func (h *Handler) handleQueryStringQuery(sql *strings.Builder, queryMap map[string]interface{}) bool {
 	if queryString, exists := queryMap["query_string"]; exists {
 		sql.WriteString("MATCH('")
 		sql.WriteString(strings.ReplaceAll(fmt.Sprintf("%v", queryString), "'", "''"))
 		sql.WriteString("')")
+		return true
+	}
+	return false
+}
+
+// handleBoolQuery processes bool queries
+func (h *Handler) handleBoolQuery(sql *strings.Builder, queryMap map[string]interface{}) error {
+	boolQuery, exists := queryMap["bool"]
+	if !exists {
 		return nil
 	}
 
-	// Handle bool queries (simplified)
-	if boolQuery, exists := queryMap["bool"]; exists {
-		boolMap, ok := boolQuery.(map[string]interface{})
-		if !ok {
-			return fmt.Errorf("invalid bool query format")
-		}
+	boolMap, ok := boolQuery.(map[string]interface{})
+	if !ok {
+		return ErrInvalidBoolQuery
+	}
 
-		var conditions []string
+	conditions, err := h.processMustClauses(boolMap)
+	if err != nil {
+		return err
+	}
 
-		// Handle must clauses (AND)
-		if must, exists := boolMap["must"]; exists {
-			mustSlice, ok := must.([]interface{})
-			if ok {
-				for _, mustClause := range mustSlice {
-					var subSQL strings.Builder
-					if err := h.appendQueryToSQL(&subSQL, mustClause); err != nil {
-						return err
-					}
-					conditions = append(conditions, "("+subSQL.String()+")")
+	if len(conditions) > 0 {
+		sql.WriteString(strings.Join(conditions, " AND "))
+	} else {
+		sql.WriteString("1=1")
+	}
+	return ErrQueryProcessed
+}
+
+// processMustClauses processes must clauses in bool queries
+func (h *Handler) processMustClauses(boolMap map[string]interface{}) ([]string, error) {
+	var conditions []string
+
+	if must, exists := boolMap["must"]; exists {
+		mustSlice, ok := must.([]interface{})
+		if ok {
+			for _, mustClause := range mustSlice {
+				var subSQL strings.Builder
+				if err := h.appendQueryToSQL(&subSQL, mustClause); err != nil {
+					return nil, err
 				}
+				conditions = append(conditions, "("+subSQL.String()+")")
 			}
 		}
-
-		if len(conditions) > 0 {
-			sql.WriteString(strings.Join(conditions, " AND "))
-		} else {
-			sql.WriteString("1=1")
-		}
-		return nil
 	}
 
-	return fmt.Errorf("unsupported query type")
+	return conditions, nil
 }
 
 // buildSQL constructs the complete SQL query for simple searches
@@ -376,105 +429,93 @@ func (h *Handler) buildSQL(args Args) (string, error) {
 func (h *Handler) buildOptions(args Args) string {
 	var options []string
 
-	// Ranker
+	h.addBasicSQLOptions(&options, args)
+	h.addAdvancedSQLOptions(&options, args)
+	h.addAgentSQLOptions(&options, args)
+	h.addFuzzySQLOptions(&options, args)
+
+	return strings.Join(options, ", ")
+}
+
+// addBasicSQLOptions adds basic search options to SQL
+func (h *Handler) addBasicSQLOptions(options *[]string, args Args) {
 	if args.Ranker != "" {
-		options = append(options, "ranker="+args.Ranker)
+		*options = append(*options, "ranker="+args.Ranker)
 	}
-
-	// Max matches
 	if args.MaxMatches > 0 {
-		options = append(options, "max_matches="+strconv.Itoa(args.MaxMatches))
+		*options = append(*options, "max_matches="+strconv.Itoa(args.MaxMatches))
 	}
-
-	// Cutoff
 	if args.Cutoff > 0 {
-		options = append(options, "cutoff="+strconv.Itoa(args.Cutoff))
+		*options = append(*options, "cutoff="+strconv.Itoa(args.Cutoff))
 	}
-
-	// Max query time
 	if args.MaxQueryTime > 0 {
-		options = append(options, "max_query_time="+strconv.Itoa(args.MaxQueryTime))
+		*options = append(*options, "max_query_time="+strconv.Itoa(args.MaxQueryTime))
 	}
-
-	// Field weights
 	if len(args.FieldWeights) > 0 {
 		weights := make([]string, 0, len(args.FieldWeights))
 		for field, weight := range args.FieldWeights {
 			weights = append(weights, field+"="+strconv.Itoa(weight))
 		}
-		options = append(options, "field_weights=("+strings.Join(weights, ",")+")")
+		*options = append(*options, "field_weights=("+strings.Join(weights, ",")+")")
 	}
-
-	// Boolean flags
-	if args.NotTermsOnlyAllowed > 0 {
-		options = append(options, "not_terms_only_allowed="+strconv.Itoa(args.NotTermsOnlyAllowed))
-	}
-
-	if args.BooleanSimplify == 0 {
-		options = append(options, "boolean_simplify=0")
-	}
-
-	if args.AccurateAggregation > 0 {
-		options = append(options, "accurate_aggregation="+strconv.Itoa(args.AccurateAggregation))
-	}
-
-	// Random seed
-	if args.RandSeed > 0 {
-		options = append(options, "rand_seed="+strconv.Itoa(args.RandSeed))
-	}
-
-	// Comment
 	if args.Comment != "" {
-		options = append(options, "comment='"+strings.ReplaceAll(args.Comment, "'", "''")+"'")
+		*options = append(*options, "comment='"+strings.ReplaceAll(args.Comment, "'", "''")+"'")
 	}
+}
 
-	// Agent options
-	if args.AgentQueryTimeout > 0 {
-		options = append(options, "agent_query_timeout="+strconv.Itoa(args.AgentQueryTimeout))
+// addAdvancedSQLOptions adds advanced search options to SQL
+func (h *Handler) addAdvancedSQLOptions(options *[]string, args Args) {
+	if args.NotTermsOnlyAllowed > 0 {
+		*options = append(*options, "not_terms_only_allowed="+strconv.Itoa(args.NotTermsOnlyAllowed))
 	}
-
-	if args.RetryCount > 0 {
-		options = append(options, "retry_count="+strconv.Itoa(args.RetryCount))
+	if args.BooleanSimplify == 0 {
+		*options = append(*options, "boolean_simplify=0")
 	}
-
-	if args.RetryDelay > 0 {
-		options = append(options, "retry_delay="+strconv.Itoa(args.RetryDelay))
+	if args.AccurateAggregation > 0 {
+		*options = append(*options, "accurate_aggregation="+strconv.Itoa(args.AccurateAggregation))
 	}
-
-	// Morphology
+	if args.RandSeed > 0 {
+		*options = append(*options, "rand_seed="+strconv.Itoa(args.RandSeed))
+	}
 	if args.Morphology != "" {
-		options = append(options, "morphology="+args.Morphology)
+		*options = append(*options, "morphology="+args.Morphology)
 	}
-
-	// Token filter
 	if args.TokenFilter != "" {
-		options = append(options, "token_filter='"+strings.ReplaceAll(args.TokenFilter, "'", "''")+"'")
+		*options = append(*options, "token_filter='"+strings.ReplaceAll(args.TokenFilter, "'", "''")+"'")
 	}
-
-	// Max predicted time
 	if args.MaxPredictedTime > 0 {
-		options = append(options, "max_predicted_time="+strconv.Itoa(args.MaxPredictedTime))
+		*options = append(*options, "max_predicted_time="+strconv.Itoa(args.MaxPredictedTime))
 	}
+}
 
-	// Fuzzy options
+// addAgentSQLOptions adds distributed agent options to SQL
+func (h *Handler) addAgentSQLOptions(options *[]string, args Args) {
+	if args.AgentQueryTimeout > 0 {
+		*options = append(*options, "agent_query_timeout="+strconv.Itoa(args.AgentQueryTimeout))
+	}
+	if args.RetryCount > 0 {
+		*options = append(*options, "retry_count="+strconv.Itoa(args.RetryCount))
+	}
+	if args.RetryDelay > 0 {
+		*options = append(*options, "retry_delay="+strconv.Itoa(args.RetryDelay))
+	}
+}
+
+// addFuzzySQLOptions adds fuzzy search options to SQL
+func (h *Handler) addFuzzySQLOptions(options *[]string, args Args) {
 	if args.Fuzzy != nil && args.Fuzzy.Enabled {
-		options = append(options, "fuzzy=1")
-
+		*options = append(*options, "fuzzy=1")
 		if args.Fuzzy.Distance > 0 {
-			options = append(options, "distance="+strconv.Itoa(args.Fuzzy.Distance))
+			*options = append(*options, "distance="+strconv.Itoa(args.Fuzzy.Distance))
 		}
-
 		if args.Fuzzy.Preserve > 0 {
-			options = append(options, "preserve="+strconv.Itoa(args.Fuzzy.Preserve))
+			*options = append(*options, "preserve="+strconv.Itoa(args.Fuzzy.Preserve))
 		}
-
 		if len(args.Fuzzy.Layouts) > 0 {
 			layouts := strings.Join(args.Fuzzy.Layouts, ",")
-			options = append(options, "layouts='"+layouts+"'")
+			*options = append(*options, "layouts='"+layouts+"'")
 		}
 	}
-
-	return strings.Join(options, ", ")
 }
 
 // buildHighlightFunction constructs HIGHLIGHT() function call

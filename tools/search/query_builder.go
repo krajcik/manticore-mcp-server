@@ -1,8 +1,20 @@
 package search
 
 import (
+	"errors"
 	"fmt"
 	"strings"
+)
+
+var (
+	ErrInvalidMatchClauseData       = errors.New("invalid match clause data")
+	ErrInvalidRangeClauseData       = errors.New("invalid range clause data")
+	ErrInvalidEqualsClauseData      = errors.New("invalid equals clause data")
+	ErrInvalidInClauseData          = errors.New("invalid in clause data")
+	ErrInvalidGeoDistanceClauseData = errors.New("invalid geo_distance clause data")
+	ErrInvalidQueryStringClauseData = errors.New("invalid query_string clause data")
+	ErrInvalidBoolClauseData        = errors.New("invalid bool clause data")
+	ErrUnsupportedClauseType        = errors.New("unsupported query clause type")
 )
 
 // QueryBuilder helps construct complex search queries
@@ -180,71 +192,108 @@ func (qb *QueryBuilder) buildQueryClauses(clauses []QueryClause) ([]map[string]i
 	result := make([]map[string]interface{}, len(clauses))
 
 	for i, clause := range clauses {
-		switch clause.Type {
-		case "match":
-			matchData, ok := clause.Data.(MatchClause)
-			if !ok {
-				return nil, fmt.Errorf("invalid match clause data")
-			}
-			result[i] = qb.buildMatchClause(matchData)
-
-		case "range":
-			rangeData, ok := clause.Data.(RangeClause)
-			if !ok {
-				return nil, fmt.Errorf("invalid range clause data")
-			}
-			result[i] = qb.buildRangeClause(rangeData)
-
-		case "equals":
-			equalsData, ok := clause.Data.(EqualsClause)
-			if !ok {
-				return nil, fmt.Errorf("invalid equals clause data")
-			}
-			result[i] = qb.buildEqualsClause(equalsData)
-
-		case "in":
-			inData, ok := clause.Data.(InClause)
-			if !ok {
-				return nil, fmt.Errorf("invalid in clause data")
-			}
-			result[i] = qb.buildInClause(inData)
-
-		case "geo_distance":
-			geoData, ok := clause.Data.(GeoDistanceClause)
-			if !ok {
-				return nil, fmt.Errorf("invalid geo_distance clause data")
-			}
-			result[i] = qb.buildGeoDistanceClause(geoData)
-
-		case "query_string":
-			queryStringData, ok := clause.Data.(QueryStringClause)
-			if !ok {
-				return nil, fmt.Errorf("invalid query_string clause data")
-			}
-			result[i] = qb.buildQueryStringClause(queryStringData)
-
-		case "match_all":
-			result[i] = map[string]interface{}{
-				"match_all": map[string]interface{}{},
-			}
-
-		case "bool":
-			boolData, ok := clause.Data.(BoolQuery)
-			if !ok {
-				return nil, fmt.Errorf("invalid bool clause data")
-			}
-			boolQuery, err := qb.buildBoolQuery(boolData)
-			if err != nil {
-				return nil, err
-			}
-			result[i] = boolQuery
-
-		default:
-			return nil, fmt.Errorf("unsupported query clause type: %s", clause.Type)
+		clauseData, err := qb.buildSingleClause(clause)
+		if err != nil {
+			return nil, err
 		}
+		result[i] = clauseData
 	}
 
 	return result, nil
+}
+
+// buildSingleClause constructs a single query clause
+func (qb *QueryBuilder) buildSingleClause(clause QueryClause) (map[string]interface{}, error) {
+	switch clause.Type {
+	case "match":
+		return qb.buildMatchClauseFromData(clause.Data)
+	case "range":
+		return qb.buildRangeClauseFromData(clause.Data)
+	case "equals":
+		return qb.buildEqualsClauseFromData(clause.Data)
+	case "in":
+		return qb.buildInClauseFromData(clause.Data)
+	case "geo_distance":
+		return qb.buildGeoDistanceClauseFromData(clause.Data)
+	case "query_string":
+		return qb.buildQueryStringClauseFromData(clause.Data)
+	case "match_all":
+		return qb.buildMatchAllClause()
+	case "bool":
+		return qb.buildBoolClauseFromData(clause.Data)
+	default:
+		return nil, fmt.Errorf("%w: %s", ErrUnsupportedClauseType, clause.Type)
+	}
+}
+
+// buildMatchClauseFromData constructs a match clause from interface data
+func (qb *QueryBuilder) buildMatchClauseFromData(data interface{}) (map[string]interface{}, error) {
+	matchData, ok := data.(MatchClause)
+	if !ok {
+		return nil, ErrInvalidMatchClauseData
+	}
+	return qb.buildMatchClause(matchData), nil
+}
+
+// buildRangeClauseFromData constructs a range clause from interface data
+func (qb *QueryBuilder) buildRangeClauseFromData(data interface{}) (map[string]interface{}, error) {
+	rangeData, ok := data.(RangeClause)
+	if !ok {
+		return nil, ErrInvalidRangeClauseData
+	}
+	return qb.buildRangeClause(rangeData), nil
+}
+
+// buildEqualsClauseFromData constructs an equals clause from interface data
+func (qb *QueryBuilder) buildEqualsClauseFromData(data interface{}) (map[string]interface{}, error) {
+	equalsData, ok := data.(EqualsClause)
+	if !ok {
+		return nil, ErrInvalidEqualsClauseData
+	}
+	return qb.buildEqualsClause(equalsData), nil
+}
+
+// buildInClauseFromData constructs an in clause from interface data
+func (qb *QueryBuilder) buildInClauseFromData(data interface{}) (map[string]interface{}, error) {
+	inData, ok := data.(InClause)
+	if !ok {
+		return nil, ErrInvalidInClauseData
+	}
+	return qb.buildInClause(inData), nil
+}
+
+// buildGeoDistanceClauseFromData constructs a geo_distance clause from interface data
+func (qb *QueryBuilder) buildGeoDistanceClauseFromData(data interface{}) (map[string]interface{}, error) {
+	geoData, ok := data.(GeoDistanceClause)
+	if !ok {
+		return nil, ErrInvalidGeoDistanceClauseData
+	}
+	return qb.buildGeoDistanceClause(geoData), nil
+}
+
+// buildQueryStringClauseFromData constructs a query_string clause from interface data
+func (qb *QueryBuilder) buildQueryStringClauseFromData(data interface{}) (map[string]interface{}, error) {
+	queryStringData, ok := data.(QueryStringClause)
+	if !ok {
+		return nil, ErrInvalidQueryStringClauseData
+	}
+	return qb.buildQueryStringClause(queryStringData), nil
+}
+
+// buildMatchAllClause constructs a match_all clause
+func (qb *QueryBuilder) buildMatchAllClause() (map[string]interface{}, error) {
+	return map[string]interface{}{
+		"match_all": map[string]interface{}{},
+	}, nil
+}
+
+// buildBoolClauseFromData constructs a bool clause from interface data
+func (qb *QueryBuilder) buildBoolClauseFromData(data interface{}) (map[string]interface{}, error) {
+	boolData, ok := data.(BoolQuery)
+	if !ok {
+		return nil, ErrInvalidBoolClauseData
+	}
+	return qb.buildBoolQuery(boolData)
 }
 
 // buildMatchClause constructs a match clause
@@ -355,71 +404,71 @@ func (qb *QueryBuilder) buildHighlightOptions(highlight HighlightOptions) map[st
 func (qb *QueryBuilder) buildHTTPOptions(args Args) map[string]interface{} {
 	options := make(map[string]interface{})
 
+	qb.addBasicOptions(options, args)
+	qb.addAdvancedOptions(options, args)
+	qb.addAgentOptions(options, args)
+
+	return options
+}
+
+// addBasicOptions adds basic search options
+func (qb *QueryBuilder) addBasicOptions(options map[string]interface{}, args Args) {
 	if args.Ranker != "" {
 		options["ranker"] = args.Ranker
 	}
-
 	if args.MaxMatches > 0 {
 		options["max_matches"] = args.MaxMatches
 	}
-
 	if args.Cutoff > 0 {
 		options["cutoff"] = args.Cutoff
 	}
-
 	if args.MaxQueryTime > 0 {
 		options["max_query_time"] = args.MaxQueryTime
 	}
-
 	if len(args.FieldWeights) > 0 {
 		options["field_weights"] = args.FieldWeights
 	}
-
-	if args.NotTermsOnlyAllowed > 0 {
-		options["not_terms_only_allowed"] = args.NotTermsOnlyAllowed
-	}
-
-	if args.BooleanSimplify == 0 {
-		options["boolean_simplify"] = 0
-	}
-
-	if args.AccurateAggregation > 0 {
-		options["accurate_aggregation"] = args.AccurateAggregation
-	}
-
-	if args.RandSeed > 0 {
-		options["rand_seed"] = args.RandSeed
-	}
-
 	if args.Comment != "" {
 		options["comment"] = args.Comment
 	}
+}
 
-	if args.AgentQueryTimeout > 0 {
-		options["agent_query_timeout"] = args.AgentQueryTimeout
+// addAdvancedOptions adds advanced search options
+func (qb *QueryBuilder) addAdvancedOptions(options map[string]interface{}, args Args) {
+	if args.NotTermsOnlyAllowed > 0 {
+		options["not_terms_only_allowed"] = args.NotTermsOnlyAllowed
 	}
-
-	if args.RetryCount > 0 {
-		options["retry_count"] = args.RetryCount
+	if args.BooleanSimplify == 0 {
+		options["boolean_simplify"] = 0
 	}
-
-	if args.RetryDelay > 0 {
-		options["retry_delay"] = args.RetryDelay
+	if args.AccurateAggregation > 0 {
+		options["accurate_aggregation"] = args.AccurateAggregation
 	}
-
+	if args.RandSeed > 0 {
+		options["rand_seed"] = args.RandSeed
+	}
 	if args.Morphology != "" {
 		options["morphology"] = args.Morphology
 	}
-
 	if args.TokenFilter != "" {
 		options["token_filter"] = args.TokenFilter
 	}
-
 	if args.MaxPredictedTime > 0 {
 		options["max_predicted_time"] = args.MaxPredictedTime
 	}
+}
 
-	return options
+// addAgentOptions adds distributed agent options
+func (qb *QueryBuilder) addAgentOptions(options map[string]interface{}, args Args) {
+	if args.AgentQueryTimeout > 0 {
+		options["agent_query_timeout"] = args.AgentQueryTimeout
+	}
+	if args.RetryCount > 0 {
+		options["retry_count"] = args.RetryCount
+	}
+	if args.RetryDelay > 0 {
+		options["retry_delay"] = args.RetryDelay
+	}
 }
 
 // buildTableName constructs table name with cluster prefix if provided
