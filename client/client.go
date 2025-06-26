@@ -141,4 +141,3 @@ func (c *Client) doRawRequest(ctx context.Context, method, endpoint, query strin
 
 	return nil, fmt.Errorf("request failed after %d attempts: %w", c.maxRetries+1, lastErr)
 }
-
