@@ -2,8 +2,8 @@ package main
 
 import (
 	"log/slog"
-	"manticore-mcp-server/config"
 	"manticore-mcp-server/client"
+	"manticore-mcp-server/config"
 	"manticore-mcp-server/server"
 	"manticore-mcp-server/tools"
 	"os"
@@ -27,9 +27,9 @@ func main() {
 
 	manticoreClient := client.New(cfg.ManticoreURL, logger)
 	toolHandler := tools.NewHandler(manticoreClient, logger)
-	
+
 	mcpServer := server.New(toolHandler, logger)
-	
+
 	if err := mcpServer.Run(); err != nil {
 		logger.Error("Server failed", "error", err)
 		os.Exit(1)
