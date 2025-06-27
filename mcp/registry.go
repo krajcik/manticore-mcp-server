@@ -194,17 +194,17 @@ func (r *Registry) handleShowTablesTool(args map[string]interface{}) (*mcp_golan
 	}
 
 	ctx := context.Background()
-	tables, err := r.tools.Tables.ShowTables(ctx, tablesArgs)
+	tablesList, err := r.tools.Tables.ShowTables(ctx, tablesArgs)
 	if err != nil {
 		return r.errorResponse(fmt.Sprintf("Failed to show tables: %v", err))
 	}
 
 	response := &Response{
 		Success: true,
-		Data:    tables,
+		Data:    tablesList,
 		Meta: &Meta{
-			Total:     len(tables),
-			Count:     len(tables),
+			Total:     len(tablesList),
+			Count:     len(tablesList),
 			Cluster:   tablesArgs.Cluster,
 			Operation: "show_tables",
 		},

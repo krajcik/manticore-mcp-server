@@ -26,9 +26,9 @@ type Handler struct {
 }
 
 // NewHandler creates a new search handler
-func NewHandler(client client.ManticoreClient, logger *slog.Logger) *Handler {
+func NewHandler(c client.ManticoreClient, logger *slog.Logger) *Handler {
 	return &Handler{
-		client: client,
+		client: c,
 		logger: logger,
 	}
 }

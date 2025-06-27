@@ -20,12 +20,12 @@ type Handler struct {
 }
 
 // NewHandler creates a new aggregated tool handler
-func NewHandler(client client.ManticoreClient, logger *slog.Logger) *Handler {
+func NewHandler(c client.ManticoreClient, logger *slog.Logger) *Handler {
 	return &Handler{
-		Search:    search.NewHandler(client, logger),
-		Tables:    tables.NewHandler(client, logger),
-		Documents: documents.NewHandler(client, logger),
-		Clusters:  clusters.NewHandler(client, logger),
+		Search:    search.NewHandler(c, logger),
+		Tables:    tables.NewHandler(c, logger),
+		Documents: documents.NewHandler(c, logger),
+		Clusters:  clusters.NewHandler(c, logger),
 		logger:    logger,
 	}
 }
