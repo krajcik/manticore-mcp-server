@@ -125,8 +125,8 @@ func (h *Handler) Execute(ctx context.Context, args Args) ([]map[string]interfac
 
 // executeSQLQuery performs search using SQL interface
 func (h *Handler) executeSQLQuery(ctx context.Context, args Args) ([]map[string]interface{}, error) {
-	if args.Query == "" {
-		return nil, fmt.Errorf("query parameter is required for SQL search")
+	if args.Query == "" && len(args.Where) == 0 {
+		return nil, fmt.Errorf("query parameter is required for SQL search when no WHERE conditions are provided")
 	}
 
 	// Set defaults

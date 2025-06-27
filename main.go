@@ -28,7 +28,7 @@ func main() {
 	manticoreClient := client.New(cfg, logger)
 	toolHandler := tools.NewHandler(manticoreClient, logger)
 
-	mcpServer := server.New(toolHandler, logger)
+	mcpServer := server.New(toolHandler, cfg, logger)
 
 	if err := mcpServer.Run(); err != nil {
 		logger.Error("Server failed", "error", err)
