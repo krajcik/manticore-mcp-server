@@ -73,7 +73,7 @@ jobs:
         done
     
     - name: Run all tests with coverage
-      run: make test
+      run: go test -cover ./...
       env:
         MANTICORE_URL: http://localhost:9308
 

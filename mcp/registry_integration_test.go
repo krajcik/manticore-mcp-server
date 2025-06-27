@@ -13,6 +13,7 @@ import (
 
 	"manticore-mcp-server/client"
 	"manticore-mcp-server/config"
+	"manticore-mcp-server/testutils"
 	"manticore-mcp-server/tools"
 )
 
@@ -25,15 +26,7 @@ type RegistryIntegrationTestSuite struct {
 }
 
 func (s *RegistryIntegrationTestSuite) SetupSuite() {
-	// Configure for integration test with real Manticore
-	s.cfg = &config.Config{
-		ManticoreURL:       "http://localhost:19308", // Test Manticore port
-		RequestTimeout:     30 * time.Second,
-		MaxRetries:         3,
-		RetryDelay:         1 * time.Second,
-		MaxResultsPerQuery: 100,
-		Debug:              false,
-	}
+	s.cfg = testutils.LoadTestConfig()
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 		Level: slog.LevelError, // Reduce noise in tests

@@ -11,6 +11,7 @@ import (
 
 	"manticore-mcp-server/client"
 	"manticore-mcp-server/config"
+	"manticore-mcp-server/testutils"
 )
 
 type DocumentsTestSuite struct {
@@ -21,12 +22,7 @@ type DocumentsTestSuite struct {
 }
 
 func (s *DocumentsTestSuite) SetupSuite() {
-	s.cfg = &config.Config{
-		ManticoreURL:   "http://localhost:19308",
-		RequestTimeout: 30 * time.Second,
-		MaxRetries:     3,
-		RetryDelay:     1 * time.Second,
-	}
+	s.cfg = testutils.LoadTestConfig()
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 		Level: slog.LevelError,

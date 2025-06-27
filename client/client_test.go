@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"manticore-mcp-server/config"
+	"manticore-mcp-server/testutils"
 )
 
 type ClientTestSuite struct {
@@ -20,13 +21,7 @@ type ClientTestSuite struct {
 }
 
 func (s *ClientTestSuite) SetupSuite() {
-	// Start Manticore container for integration tests
-	s.cfg = &config.Config{
-		ManticoreURL:   "http://localhost:19308", // Test Manticore port
-		RequestTimeout: 30 * time.Second,
-		MaxRetries:     3,
-		RetryDelay:     1 * time.Second,
-	}
+	s.cfg = testutils.LoadTestConfig()
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 		Level: slog.LevelError, // Reduce noise in tests
@@ -144,12 +139,13 @@ func (s *ClientTestSuite) TestExecuteSQL_InvalidQuery() {
 }
 
 func (s *ClientTestSuite) TestExecuteSQL_ContextCancellation() {
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
-	defer cancel()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Immediately cancel the context
 
 	_, err := s.client.ExecuteSQL(ctx, "SHOW TABLES")
-	s.Error(err)
-	s.Contains(err.Error(), "context deadline exceeded")
+	if s.Error(err) {
+		s.Contains(err.Error(), "context canceled")
+	}
 }
 
 func TestClientIntegration(t *testing.T) {
