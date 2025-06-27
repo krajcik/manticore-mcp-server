@@ -1,0 +1,149 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  release:
+    types: [ published ]
+
+env:
+  GO_VERSION: '1.24'
+  BINARY_NAME: 'manticore-mcp-server'
+
+jobs:
+  test:
+    name: Test and Lint
+    runs-on: ubuntu-latest
+    services:
+      manticore:
+        image: manticoresearch/manticore:latest
+        ports:
+          - 9308:9308
+          - 9312:9312
+        options: >-
+          --health-cmd="curl -f http://localhost:9308/sql -d '{\"query\":\"SHOW STATUS\"}' || exit 1"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+    
+    - name: Install golangci-lint
+      uses: golangci/golangci-lint-action@v3
+      with:
+        version: latest
+        args: --version
+    
+    - name: Cache Go modules
+      uses: actions/cache@v3
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+    
+    - name: Install dependencies
+      run: make deps
+    
+    - name: Check formatting
+      run: make fmt-check
+    
+    - name: Generate code
+      run: make generate
+    
+    - name: Run linter
+      run: make lint-ci
+    
+    - name: Wait for Manticore
+      run: |
+        for i in {1..30}; do
+          if curl -f http://localhost:9308/sql -d '{"query":"SHOW STATUS"}' > /dev/null 2>&1; then
+            echo "Manticore is ready"
+            break
+          fi
+          echo "Waiting for Manticore... ($i/30)"
+          sleep 2
+        done
+    
+    - name: Run all tests with coverage
+      run: make test-coverage
+      env:
+        MANTICORE_URL: http://localhost:9308
+
+  build:
+    name: Build Cross-Platform Binaries
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'push' || github.event_name == 'release'
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+    
+    - name: Cache Go modules
+      uses: actions/cache@v3
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+    
+    - name: Install dependencies
+      run: make deps
+    
+    - name: Build all platforms
+      run: make build-all
+    
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: binaries
+        path: build/
+        retention-days: 30
+
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'release'
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+    
+    - name: Cache Go modules
+      uses: actions/cache@v3
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+    
+    - name: Install dependencies
+      run: make deps
+    
+    - name: Create release archives
+      run: make release
+    
+    - name: Upload release assets
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          build/*.tar.gz
+          build/*.zip
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

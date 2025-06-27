@@ -47,9 +47,21 @@ build-all: clean
 lint:
 	golangci-lint run ./... --fix
 
+# Run linter (CI mode - no fixes)
+lint-ci:
+	golangci-lint run ./...
+
 # Format code
 fmt:
 	gofmt -s -w .
+
+# Check formatting (CI mode - no fixes)
+fmt-check:
+	@if [ -n "$$(gofmt -s -l .)" ]; then \
+		echo "Code is not formatted. Run 'make fmt' to fix:"; \
+		gofmt -s -l .; \
+		exit 1; \
+	fi
 
 # Generate code (mocks, etc.)
 generate:
